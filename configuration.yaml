@@ -1,0 +1,46 @@
+# Loads default set of integrations. Do not remove.
+default_config:
+
+# Load frontend themes from the themes folder
+frontend:
+  themes: !include_dir_merge_named themes
+
+automation: !include automations.yaml
+script: !include scripts.yaml
+scene: !include scenes.yaml
+
+# configuration.yaml
+counter:
+  grid_charge_writes_30m:
+    name: Grid charge writes (30m)
+    initial: 0
+    step: 1
+    minimum: 0
+    maximum: 100
+
+sensor:
+  - platform: statistics
+    name: inverter_grid_l1_voltage_stats_min_15m
+    entity_id: sensor.inverter_grid_l1_voltage
+    state_characteristic: value_min
+    max_age:
+      minutes: 15
+
+  - platform: statistics
+    name: inverter_grid_l1_voltage_stats_avg_15m
+    entity_id: sensor.inverter_grid_l1_voltage
+    state_characteristic: mean
+    max_age:
+      minutes: 15
+
+template:
+  - sensor:
+      - name: inverter_grid_l1_voltage_min_15m
+        unit_of_measurement: "V"
+        state: >
+          {{ states('sensor.inverter_grid_l1_voltage_stats_min_15m') | float(default=0) }}
+
+      - name: inverter_grid_l1_voltage_avg_15m
+        unit_of_measurement: "V"
+        state: >
+          {{ states('sensor.inverter_grid_l1_voltage_stats_avg_15m') | float(default=0) }}

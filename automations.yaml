@@ -1,0 +1,228 @@
+- id: 'grid_state_notification'
+  alias: "Grid State Notification"
+  mode: single
+
+  triggers:
+    - trigger: state
+      entity_id: binary_sensor.inverter_grid
+      from: "off"
+      to: "on"
+      variables:
+        cause: "grid on"
+
+    - trigger: state
+      entity_id: binary_sensor.inverter_grid
+      from: "on"
+      to: "off"
+      variables:
+        cause: "grid off"
+
+  variables:
+    notify_target: notify.mobile_app_sm_a566b
+
+    v_now: "{{ states('sensor.inverter_grid_l1_voltage') | float(default=0) }}"
+    battery: "{{ states('sensor.inverter_battery') | float(default=0) }}"
+
+  actions:
+    - choose:
+        # Grid becomes available
+        - conditions: "{{ cause == 'grid on' }}"
+          sequence:
+            - service: "{{ notify_target }}"
+              data:
+                title: "Grid ON"
+                message: "V {{ v_now }}, Battery {{ battery }}"
+                data:
+                  priority: high
+                  ttl: 0
+
+        # Grid becomes unavailable
+        - conditions: "{{ cause == 'grid off' }}"
+          sequence:
+            - service: "{{ notify_target }}"
+              data:
+                title: "Grid OFF"
+                message: "V {{ v_now }}, Battery {{ battery }}"
+                data:
+                  priority: high
+                  ttl: 0
+
+- id: 'grid_charge_write_budget_reset'
+  alias: "Reset Grid Charge Write Budget Counter"
+  mode: single
+
+  triggers:
+    - trigger: time_pattern
+      minutes: "/30"
+
+  actions:
+    - service: counter.reset
+      target:
+        entity_id: counter.grid_charge_writes_30m
+
+- id: 'grid_charge_write_budget_notification'
+  alias: "Grid Charge Write Budget Notification"
+  mode: single
+
+  triggers:
+    - trigger: numeric_state
+      entity_id: counter.grid_charge_writes_30m
+      above: 3
+
+  variables:
+    notify_target: notify.mobile_app_sm_a566b
+
+  actions:
+    - service: "{{ notify_target }}"
+      data:
+        title: "Grid Charge Write Budget Exceeded"
+        message: "Grid charge write count in last 30m exceeded 3 writes: {{ states('counter.grid_charge_writes_30m') }}"
+        data:
+          priority: high
+          ttl: 0
+
+- id: 'battery_grid_charge_current_adjustment'
+  alias: "Battery Grid Charge Current Adjustment"
+  mode: single
+
+  triggers:
+    - trigger: state
+      entity_id: binary_sensor.inverter_grid
+      from: "off"
+      to: "on"
+      variables:
+        cause: "grid on"
+
+    - trigger: state
+      entity_id: binary_sensor.inverter_grid
+      from: "on"
+      to: "off"
+      variables:
+        cause: "grid off"
+
+    - trigger: numeric_state
+      entity_id: sensor.inverter_grid_l1_voltage
+      below: 190
+      variables:
+        cause: "low voltage"
+
+    - trigger: time_pattern
+      minutes: "/5"
+      variables:
+        cause: "time"
+
+  variables:
+    notify_target: notify.mobile_app_sm_a566b
+    charge_entity: number.inverter_battery_grid_charging_current
+    write_counter: counter.grid_charge_writes_30m
+    write_budget_30m: 6
+    min_write_interval_secs: 900
+
+    c_now: "{{ states(charge_entity) | int(default=-1) }}"
+    v_now: "{{ states('sensor.inverter_grid_l1_voltage') | float(default=-1) }}"
+    v_avg: "{{ states('sensor.inverter_grid_l1_voltage_avg_15m') | float(default=-1) }}"
+    v_min: "{{ states('sensor.inverter_grid_l1_voltage_min_15m') | float(default=-1) }}"
+    p_now: "{{ states('sensor.inverter_grid_l1_power') | float(default=-1) }}"
+    battery: "{{ states('sensor.inverter_battery') | float(default=-1) }}"
+    grid: "{{ states('binary_sensor.inverter_grid') }}"
+    writes_30m: "{{ states(write_counter) | int(default=0) }}"
+
+    is_ok: "{{ (c_now >= 0) and (v_now >= 0) and (v_min >= 0) and (v_avg >= 0) and (p_now >= 0) and (battery >= 0) }}"
+    grid_on: "{{ grid == 'on' }}"
+    grid_off: "{{ grid ==  'off' }}"
+    last_change_secs: "{{ (as_timestamp(now()) - as_timestamp(states[charge_entity].last_changed)) if is_ok else 0 }}"
+    budget_ok: "{{ writes_30m <= write_budget_30m }}"
+
+    house_load_est: 500
+    dv_per_kw: 5
+    dv: "{{ dv_per_kw * p_now / 1000.0 }}"
+    dv_5: "{{ dv_per_kw * (house_load_est + 5.0 * 48.0) / 1000.0 }}"
+    dv_10: "{{ dv_per_kw * (house_load_est + 10.0 * 48.0) / 1000.0 }}"
+    dv_20: "{{ dv_per_kw * (house_load_est + 20.0 * 48.0) / 1000.0 }}"
+    dv_30: "{{ dv_per_kw * (house_load_est + 30.0 * 48.0) / 1000.0 }}"
+
+    v_eff: "{{ [v_now, v_min] | min }}"
+    can_set_10: "{{ (v_eff + dv - dv_10) >= 195 }}"
+    can_set_20: "{{ (v_eff + dv - dv_20) >= 195 }}"
+    can_set_30: "{{ (v_eff + dv - dv_30) >= 195 }}"
+    can_change: "{{ last_change_secs >= min_write_interval_secs }}"
+
+    info_message: "cause {{ cause }}, grid {{ grid }}, c_now {{ c_now }}, v_now {{ v_now }}, v_avg {{ v_avg }}, v_min {{ v_min }}, p_now {{ p_now }}, battery {{ battery }}"
+
+  actions:
+    - choose:
+        # Should set to 5A (no delay)
+        - conditions: "{{ budget_ok and ((c_now > 5) or (c_now < 0)) and (grid_off or (cause == 'grid off') or (v_now <= 190) or (v_avg <= 190)) }}"
+          sequence:
+            - service: counter.increment
+              target:
+                entity_id: "{{ write_counter }}"
+            - service: number.set_value
+              target:
+                entity_id: "{{ charge_entity }}"
+              data:
+                value: 5
+            - service: "{{ notify_target }}"
+              data:
+                title: "Set Charge to 5"
+                message: "{{ info_message }}"
+                data:
+                  priority: high
+                  ttl: 0
+
+        # Can increase to 30A
+        - conditions: "{{ budget_ok and is_ok and can_change and grid_on and can_set_30 and (c_now < 30) and (battery < 95) }}"
+          sequence:
+            - service: counter.increment
+              target:
+                entity_id: "{{ write_counter }}"
+            - service: number.set_value
+              target:
+                entity_id: "{{ charge_entity }}"
+              data:
+                value: 30
+            - service: "{{ notify_target }}"
+              data:
+                title: "Set Charge to 30"
+                message: "{{ info_message }}"
+                data:
+                  priority: high
+                  ttl: 0
+
+        # Can increase to 20A
+        - conditions: "{{ budget_ok and is_ok and can_change and grid_on and can_set_20 and (c_now < 20) and (battery < 95) }}"
+          sequence:
+            - service: counter.increment
+              target:
+                entity_id: "{{ write_counter }}"
+            - service: number.set_value
+              target:
+                entity_id: "{{ charge_entity }}"
+              data:
+                value: 20
+            - service: "{{ notify_target }}"
+              data:
+                title: "Set Charge to 20"
+                message: "{{ info_message }}"
+                data:
+                  priority: high
+                  ttl: 0
+
+        # Can increase to 10A
+        - conditions: "{{ budget_ok and is_ok and can_change and grid_on and can_set_10 and (c_now < 10) and (battery < 95) }}"
+          sequence:
+            - service: counter.increment
+              target:
+                entity_id: "{{ write_counter }}"
+            - service: number.set_value
+              target:
+                entity_id: "{{ charge_entity }}"
+              data:
+                value: 10
+            - service: "{{ notify_target }}"
+              data:
+                title: "Set Charge to 10"
+                message: "{{ info_message }}"
+                data:
+                  priority: high
+                  ttl: 0
