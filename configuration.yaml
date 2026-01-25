@@ -20,27 +20,27 @@ counter:
 
 sensor:
   - platform: statistics
-    name: inverter_grid_l1_voltage_stats_min_15m
+    name: inverter_grid_l1_voltage_stats_min_5m
     entity_id: sensor.inverter_grid_l1_voltage
     state_characteristic: value_min
     max_age:
-      minutes: 15
+      minutes: 5
 
   - platform: statistics
-    name: inverter_grid_l1_voltage_stats_avg_15m
+    name: inverter_grid_l1_voltage_stats_avg_5m
     entity_id: sensor.inverter_grid_l1_voltage
     state_characteristic: mean
     max_age:
-      minutes: 15
+      minutes: 5
 
 template:
   - sensor:
-      - name: inverter_grid_l1_voltage_min_15m
+      - name: inverter_grid_l1_voltage_min_5m
         unit_of_measurement: "V"
         state: >
-          {{ states('sensor.inverter_grid_l1_voltage_stats_min_15m') | float(default=0) }}
+          {{ states('sensor.inverter_grid_l1_voltage_stats_min_5m') | float(default=0) }}
 
-      - name: inverter_grid_l1_voltage_avg_15m
+      - name: inverter_grid_l1_voltage_avg_5m
         unit_of_measurement: "V"
         state: >
-          {{ states('sensor.inverter_grid_l1_voltage_stats_avg_15m') | float(default=0) }}
+          {{ states('sensor.inverter_grid_l1_voltage_stats_avg_5m') | float(default=0) }}

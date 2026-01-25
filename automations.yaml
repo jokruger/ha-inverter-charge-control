@@ -120,8 +120,8 @@
 
     c_now: "{{ states(charge_entity) | int(default=-1) }}"
     v_now: "{{ states('sensor.inverter_grid_l1_voltage') | float(default=-1) }}"
-    v_avg: "{{ states('sensor.inverter_grid_l1_voltage_avg_15m') | float(default=-1) }}"
-    v_min: "{{ states('sensor.inverter_grid_l1_voltage_min_15m') | float(default=-1) }}"
+    v_avg: "{{ states('sensor.inverter_grid_l1_voltage_avg_5m') | float(default=-1) }}"
+    v_min: "{{ states('sensor.inverter_grid_l1_voltage_min_5m') | float(default=-1) }}"
     p_now: "{{ states('sensor.inverter_grid_l1_power') | float(default=-1) }}"
     battery: "{{ states('sensor.inverter_battery') | float(default=-1) }}"
     grid: "{{ states('binary_sensor.inverter_grid') }}"
@@ -152,7 +152,7 @@
   actions:
     - choose:
         # Should set to 5A (no delay)
-        - conditions: "{{ budget_ok and ((c_now > 5) or (c_now < 0)) and (grid_off or (cause == 'grid off') or (v_now <= 190) or (v_avg <= 190)) }}"
+        - conditions: "{{ budget_ok and is_ok and ((c_now > 5) or (c_now < 0)) and (grid_off or (cause == 'grid off') or (v_now <= 190) or (v_avg <= 190)) }}"
           sequence:
             - service: counter.increment
               target:
